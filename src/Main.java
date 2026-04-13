@@ -2,6 +2,12 @@ import java.awt.*;
 import java.awt.event.*;
 import javax.swing.*;
 
+import com.openai.client.OpenAIClient;
+import com.openai.client.okhttp.OpenAIOkHttpClient;
+import com.openai.models.responses.Response;
+import com.openai.models.responses.ResponseCreateParams;
+
+
 public class Main implements ActionListener {
     private JFrame mainFrame;
     private JLabel headerLabel;
@@ -22,6 +28,15 @@ public class Main implements ActionListener {
     public static void main(String[] args) {
         Main main = new Main();
         main.showEventDemo();
+        OpenAIClient client = OpenAIOkHttpClient.fromEnv();
+
+        ResponseCreateParams params = ResponseCreateParams.builder()
+                .input("Say this is a test")
+                .model("gpt-5.4")
+                .build();
+
+        Response response = client.responses().create(params);
+        System.out.println(response);
     }
 
     private void prepareGUI() {

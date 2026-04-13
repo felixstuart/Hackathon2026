@@ -3,10 +3,20 @@ import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.openai.models.responses.Response;
 import com.openai.models.responses.ResponseCreateParams;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.util.ArrayList;
 import java.util.Random;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import javax.swing.SwingUtilities;
 
-public class Student {
+public class Student extends Participant {
+    public final String name;
     public int ability;
 
     IntellectualStyle intellectualStyle;
@@ -16,62 +26,161 @@ public class Student {
 
     private static final Random random = new Random();
 
+    // Shared across all students — created once, reused forever
+    private static final OpenAIClient aiClient  = OpenAIOkHttpClient.fromEnv();
+    private static final HttpClient   httpClient = HttpClient.newHttpClient();
+
+    // Single-threaded queue — speech plays in submission order, never overlapping
+    private static final ExecutorService speechQueue = Executors.newSingleThreadExecutor();
+
+    // Incremented on stopSpeech() — queued tasks with a stale generation are no-ops
+    private static volatile int     speechGeneration   = 0;
+    private static volatile Process currentSpeechProcess = null;
+
+    private static final String[] VOICES = { "alloy", "verse", "coral", "sage", "ember" };
+    private final String voice;
+
     private static <T extends Enum<T>> T randomEnum(Class<T> enumClass) {
         T[] values = enumClass.getEnumConstants();
         return values[random.nextInt(values.length)];
     }
 
-    public Student(int ability) {
+    public Student(int ability, String name) {
+        this(ability, name, VOICES[random.nextInt(VOICES.length)]);
+    }
+
+    public Student(int ability, String name, String voice) {
+        super(ability, name, voice);
         this.ability = ability;
-
-        this.intellectualStyle = randomEnum(IntellectualStyle.class);
-        this.socialRegister    = randomEnum(SocialRegister.class);
-        this.behavior          = randomEnum(DiscussionBehavior.class);
+        this.name    = name;
+        this.intellectualStyle  = randomEnum(IntellectualStyle.class);
+        this.socialRegister     = randomEnum(SocialRegister.class);
+        this.behavior           = randomEnum(DiscussionBehavior.class);
         this.academicBackground = randomEnum(AcademicBackground.class);
+        this.voice = voice;
     }
 
-    private String buildSystemPrompt() {
-        return String.format(
-                "You are a student in a Harkness discussion. Here is your profile:\n\n" +
-                        "Intellectual style: %s\n" +
-                        "Discussion behavior: %s\n" +
-                        "Academic background: %s\n" +
-                        "Social register: %s\n" +
-                        "Ability level: %d/5\n\n" +
-                        "Stay in character. Speak naturally as a student — not an AI. " +
-                        "Keep your response to 1-3 sentences unless the moment calls for more. " +
-                        "Reference prior speakers by name when building on or disagreeing with them."+
-                        "Feel free to ask open-ended questions when the moment calls for it."+
-                        "Make sure to refer to the text.",
-                intellectualStyle.promptDescription,
-                behavior.promptDescription,
-                academicBackground.promptDescription,
-                socialRegister.promptDescription,
-                ability
-        );
+    public String getMessage(String discussionPrompt, ArrayList<String> lastMessages) {
+        String message = fetchText(discussionPrompt, lastMessages);
+        enqueueSpeech(message);
+        return message;
     }
 
-    public String getMessage(String discussionPrompt,  ArrayList<String> lastMessages) {
-        OpenAIClient client = OpenAIOkHttpClient.fromEnv();
-
-        // Build context from recent messages
+    /** Generates only the text response — no TTS. Used by Discussion for pre-generation. */
+    String fetchText(String discussionPrompt, ArrayList<String> lastMessages) {
         StringBuilder context = new StringBuilder();
         context.append("Discussion topic: ").append(discussionPrompt).append("\n\n");
         context.append("Recent contributions:\n");
-        for (String msg : lastMessages) {
-            context.append("- ").append(msg).append("\n");
-        }
-        context.append("\nNow contribute your response.");
+        for (String msg : lastMessages) context.append("- ").append(msg).append("\n");
+        context.append("\nNow respond.");
 
         ResponseCreateParams params = ResponseCreateParams.builder()
                 .instructions(buildSystemPrompt())
                 .input(context.toString())
-                .model("gpt-5.4")
+                .model("gpt-4o-mini")
                 .build();
 
-        Response response = client.responses().create(params);
-        String message = response.output().get(0).asMessage().content().get(0).asOutputText().text();
+        Response response = aiClient.responses().create(params);
+        return response.output().get(0).asMessage().content().get(0).asOutputText().text();
+    }
 
-        return message;
+    /** Submits pre-generated text to the TTS speech queue. */
+    void enqueueSpeech(String message) {
+        final int gen = speechGeneration;
+        speechQueue.submit(() -> speak(message, gen));
+    }
+
+    /** Stops the currently playing audio and discards any queued speech. */
+    public static void stopSpeech() {
+        speechGeneration++;
+        Process p = currentSpeechProcess;
+        if (p != null) p.destroy();
+    }
+
+    /**
+     * Runs {@code r} on the EDT after all currently queued speech has finished.
+     * Use this to delay a UI update (e.g. showing a chat bubble) until the speaker is done.
+     */
+    public static void runAfterSpeech(Runnable r) {
+        speechQueue.submit(() -> SwingUtilities.invokeLater(r));
+    }
+
+    private void speak(String text, int gen) {
+        try {
+            if (gen != speechGeneration) return;
+
+            String apiKey = System.getenv("OPENAI_API_KEY");
+
+            String json = "{\"model\":\"gpt-4o-mini-tts\","
+                    + "\"input\":\"" + text.replace("\\", "\\\\").replace("\"", "\\\"") + "\","
+                    + "\"voice\":\"" + voice + "\"}";
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create("https://api.openai.com/v1/audio/speech"))
+                    .header("Authorization", "Bearer " + apiKey)
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(json))
+                    .build();
+
+            HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+
+            if (gen != speechGeneration) return;  // stopped while fetching audio
+
+            File tempFile = File.createTempFile("speech_", ".mp3");
+            tempFile.deleteOnExit();
+            try (FileOutputStream fos = new FileOutputStream(tempFile)) {
+                fos.write(response.body());
+            }
+
+            Process p = new ProcessBuilder("afplay", tempFile.getAbsolutePath()).start();
+            currentSpeechProcess = p;
+            p.waitFor();
+            currentSpeechProcess = null;
+
+        } catch (Exception e) {
+            if (gen == speechGeneration) e.printStackTrace();  // only log if not intentionally stopped
+        }
+    }
+    @Override
+    protected String buildSystemPrompt() {
+        return String.format(
+                "You are %s, a high school student in a Harkness discussion.\n\n" +
+                "Your voice: %s\n" +
+                "How you engage: %s\n" +
+                "How you reason: %s\n" +
+                "Your background lens: %s\n" +
+                "Your level: %s\n\n" +
+                "Rules — follow them exactly:\n" +
+                "- You are %s. Sign nothing, introduce yourself to nobody — just speak.\n" +
+                "- Sound like a real student, not an AI. No bullet points, no headers.\n" +
+                "- Anchor your point to something specific in the text.\n" +
+                "- If someone said something relevant just before you, use their name.\n" +
+                "- Make a statement or observation. Do NOT end your comment with a question.\n" +
+                "- %s",
+                name,
+                socialRegister.promptDescription,
+                behavior.promptDescription,
+                intellectualStyle.promptDescription,
+                academicBackground.promptDescription,
+                abilityDescription(ability),
+                name,
+                lengthInstruction(behavior)
+        );
+    }
+
+    private static String abilityDescription(int level) {
+        if (level <= 2)  return "You're a weak student. Your points are simple, sometimes confused. You rarely cite the text precisely.";
+        if (level <= 4)  return "You're average. You can make a point but lack depth — you paraphrase the text more than you analyze it.";
+        if (level <= 6)  return "You're solid. You back up your points with specific references and think through implications.";
+        if (level <= 8)  return "You're strong. Your analysis is nuanced, you connect ideas, and you push the conversation forward.";
+        return "You're the sharpest in the room. You challenge surface readings, draw on subtle evidence, and elevate everyone else.";
+    }
+
+    private static String lengthInstruction(DiscussionBehavior b) {
+        switch (b) {
+            case QUIET_OBSERVER:   return "One sentence only. You speak rarely.";
+            case OVER_CONTRIBUTOR: return "Two sentences max. You want to say more — resist it.";
+            default:               return "One sentence, two at most. Stop there.";
+        }
     }
 }

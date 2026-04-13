@@ -1,5 +1,6 @@
 import java.awt.*;
 import java.awt.event.*;
+import java.util.ArrayList;
 import javax.swing.*;
 
 import com.openai.client.OpenAIClient;
@@ -28,15 +29,14 @@ public class Main implements ActionListener {
     public static void main(String[] args) {
         Main main = new Main();
         main.showEventDemo();
-        OpenAIClient client = OpenAIOkHttpClient.fromEnv();
+        ArrayList<String> messages = new ArrayList<>();
+        messages.add("Welcome class! Today we're going to be discussing Act 1 of Twelfth Night. I'll open it up to discussion.");
+        Student felix = new Student(5);
 
-        ResponseCreateParams params = ResponseCreateParams.builder()
-                .input("Say this is a test")
-                .model("gpt-5.4")
-                .build();
+        String prompt = "Welcome class! Today we're going to be discussing Act 1 of Twelfth Night. I'll open it up to discussion.";
+        ArrayList<String> lastMessages = new ArrayList<>();
 
-        Response response = client.responses().create(params);
-        System.out.println(response);
+        System.out.println(felix.getMessage(prompt, lastMessages));
     }
 
     private void prepareGUI() {
@@ -109,6 +109,10 @@ public class Main implements ActionListener {
         controlPanel.add(submitButton);
         controlPanel.add(cancelButton);
 
+        JButton classroomBtn = new JButton("Open Classroom");
+        classroomBtn.addActionListener(e -> new ClassroomFrame());
+        controlPanel.add(classroomBtn);
+
         mainFrame.setVisible(true);
     }
 
@@ -137,4 +141,5 @@ public class Main implements ActionListener {
             }
         }
     }
+
 }

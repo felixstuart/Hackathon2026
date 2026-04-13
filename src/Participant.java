@@ -105,6 +105,11 @@ public abstract class Participant {
             speechQueue.submit(() -> SwingUtilities.invokeLater(r));
         }
 
+        /** Runs {@code r} on the EDT as the next item in the speech queue. Use to set speaking=true right before audio starts. */
+        public static void enqueueTask(Runnable r) {
+            speechQueue.submit(() -> SwingUtilities.invokeLater(r));
+        }
+
         private void speak(String text, int gen) {
             try {
                 if (gen != speechGeneration) return;

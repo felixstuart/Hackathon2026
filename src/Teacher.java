@@ -1,13 +1,13 @@
 public class Teacher extends Participant{
     public String book;
     public int level;
-
     public Teacher(int ability, String name) {
         super(ability, name);
     }
 
     public Teacher(int ability, String name, String voice) {
         super(ability, name, voice);
+        this.level = ability;
     }
 
     @Override
@@ -43,8 +43,10 @@ public class Teacher extends Participant{
                         "2. Ask an open-ended question that invites multiple interpretations\n" +
                         "3. Encourage students to reference the text in their responses",
                     book,
-                level
+                    level
                 );
         return prompt;
     }
+
+
 }

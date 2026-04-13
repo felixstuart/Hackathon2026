@@ -67,8 +67,10 @@ public class ChatPanel extends JPanel {
         appendLine("> You: " + text, ACCENT);
     }
 
-    public void addMessage(String speaker, String text) {
-        appendLine(speaker + ": " + text, speakerColor(speaker));
+    /** seat: 1–6 = students, 7 = teacher */
+    public void addMessage(String speaker, String text, int seat) {
+        Color color = seat == 7 ? TEACHER_COLOR : STUDENT_COLORS[(seat - 1) % STUDENT_COLORS.length];
+        appendLine(speaker + ": " + text, color);
     }
 
     public void requestFocusOnInput() {
@@ -85,16 +87,6 @@ public class ChatPanel extends JPanel {
 
     public void setOnSubmit(Consumer<String> handler) { this.onSubmit = handler; }
     public void setOnTyping(Runnable handler)         { this.onTyping = handler; }
-
-    // ── color lookup ──────────────────────────────────────────────────────────
-
-    private static Color speakerColor(String speaker) {
-        if (speaker.equals("Teacher")) return TEACHER_COLOR;
-        // Deterministically map any name to a slot by hashing, so the same
-        // student always gets the same color within a session.
-        int slot = Math.abs(speaker.hashCode()) % STUDENT_COLORS.length;
-        return STUDENT_COLORS[slot];
-    }
 
     // ── builder helpers ───────────────────────────────────────────────────────
 
@@ -185,7 +177,6 @@ public class ChatPanel extends JPanel {
         try {
             doc.insertString(doc.getLength(), text, attrs);
         } catch (BadLocationException ignored) {}
-        // Keep scrolled to newest message
         messageArea.setCaretPosition(doc.getLength());
     }
 

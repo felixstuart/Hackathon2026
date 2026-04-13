@@ -13,7 +13,7 @@ public class Discussion {
 
     public Student[] students;
     public String book;
-    public Student teacher;
+    public Teacher teacher;
     public int level;
 
     public String prompt;
@@ -21,6 +21,9 @@ public class Discussion {
     public Student next;
     public int[] order = new int[6];
     public int orderIndex = 0;
+    private Student lastSpeaker;
+
+    public Student getLastSpeakerStudent() { return lastSpeaker; }
 
     public ArrayList<String> messages = new ArrayList<String>();
 
@@ -63,7 +66,7 @@ public class Discussion {
         }
         next = students[order[0]];
 
-        prompt = String.format(
+        String teacher_prompt = String.format(
                 "You are a teacher running a Harkness discussion about \"%s\" with a class at level %d/10.\n\n" +
 
                         "Harkness is student-led. Your job is to start the conversation and then get out of the way. " +
@@ -96,7 +99,8 @@ public class Discussion {
                 level
         );
 
-        teacher = new Student(level, "Teacher", "onyx");
+        teacher = new Teacher(level, "Teacher", "onyx");
+        this.prompt = teacher.getMessage("",new ArrayList<>());
     }
 
     public boolean isOver() {
@@ -116,11 +120,10 @@ public class Discussion {
         }
 
         if (msg == null) {
-            msg = s.getMessage(prompt, messages);  // generate + enqueue TTS
-        } else {
-            s.enqueueSpeech(msg);  // text was prefetched; just enqueue TTS
+            msg = s.fetchText(prompt, messages);  // text only — ClassroomFrame enqueues TTS
         }
 
+        lastSpeaker = s;
         messages.add(s.name + ": " + msg);
         startPrefetch();  // pre-generate the next student's response in the background
         return msg;
@@ -213,8 +216,7 @@ public class Discussion {
         Response response = client.responses().create(params);
         String message = response.output().get(0).asMessage().content().get(0).asOutputText().text();
         messages.add("Teacher: " + message);
-        teacher.enqueueSpeech(message);
-        return message;
+        return message;  // ClassroomFrame enqueues TTS
     }
 
     /**
@@ -250,8 +252,7 @@ public class Discussion {
 
         if (result.equalsIgnoreCase("OK") || result.toUpperCase().startsWith("OK")) return null;
         messages.add("Teacher: " + result);
-        teacher.enqueueSpeech(result);
-        return result;
+        return result;  // ClassroomFrame enqueues TTS
     }
 
     private int gaussianAbility(int center) {

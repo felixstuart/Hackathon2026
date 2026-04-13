@@ -1,4 +1,6 @@
 import java.awt.*;
+import java.util.ArrayList;
+import java.util.Random;
 import javax.swing.*;
 
 public class ClassroomFrame extends JFrame {
@@ -20,6 +22,7 @@ public class ClassroomFrame extends JFrame {
     // Live state shared with enterClassroom lambdas
     private Timer    autoAdvanceTimer;
     private boolean  aiInProgress = false;
+    public String discussionPrompt;
 
     public ClassroomFrame() {
         setTitle("Harkness Discussion");
@@ -58,20 +61,20 @@ public class ClassroomFrame extends JFrame {
         if (autoAdvanceTimer != null) autoAdvanceTimer.stop();
         autoAdvanceTimer = new Timer(8000, null);
         autoAdvanceTimer.addActionListener(e -> triggerStudentTurn());
-
-        // Teacher opens the discussion, then auto-advance starts
         SwingWorker<String, Void> teacherOpener = new SwingWorker<>() {
             protected String doInBackground() { return discussion.getTeacherMessage(); }
             protected void done() {
                 try {
                     String msg = get();
-                    classroomPanel.setSpeaking(7, true);
-                    classroomPanel.setGesture(7, GestureState.HAND_RAISE);
-                    Student.runAfterSpeech(() -> {
-                        chatPanel.addMessage("Teacher", msg);
+                    GestureState g = randomGesture();
+                    Participant.enqueueTask(() -> { classroomPanel.setSpeaking(7, true);  classroomPanel.setGesture(7, g); });
+                    discussion.teacher.enqueueSpeech(msg);
+                    Participant.runAfterSpeech(() -> {
+                        chatPanel.addMessage("Teacher", msg, 7);
                         classroomPanel.setSpeaking(7, false);
+                        classroomPanel.setGesture(7, GestureState.IDLE);
                     });
-                    discussion.startPrefetch();  // pre-generate first student turn while teacher speaks
+                    discussion.startPrefetch();
                 } catch (Exception e) { e.printStackTrace(); }
                 autoAdvanceTimer.start();
             }
@@ -95,13 +98,16 @@ public class ClassroomFrame extends JFrame {
             protected void done() {
                 try {
                     int seat = discussion.getLastSpeakerSeat();
+                    Student speaker = discussion.getLastSpeakerStudent();
                     String msg = get();
                     String name = discussion.getSpeakerName(seat);
-                    classroomPanel.setSpeaking(seat, true);
-                    classroomPanel.setGesture(seat, GestureState.HAND_RAISE);
-                    Student.runAfterSpeech(() -> {
-                        chatPanel.addMessage(name, msg);
+                    GestureState g = randomGesture();
+                    Participant.enqueueTask(() -> { classroomPanel.setSpeaking(seat, true); classroomPanel.setGesture(seat, g); });
+                    speaker.enqueueSpeech(msg);
+                    Participant.runAfterSpeech(() -> {
+                        chatPanel.addMessage(name, msg, seat);
                         classroomPanel.setSpeaking(seat, false);
+                        classroomPanel.setGesture(seat, GestureState.IDLE);
                     });
                 } catch (Exception ex) { ex.printStackTrace(); }
                 finally {
@@ -134,19 +140,24 @@ public class ClassroomFrame extends JFrame {
                     String speaker = result[0];
                     String msg = result[1];
                     if (speaker.equals("Teacher")) {
-                        classroomPanel.setSpeaking(7, true);
-                        classroomPanel.setGesture(7, GestureState.HAND_RAISE);
-                        Student.runAfterSpeech(() -> {
-                            chatPanel.addMessage(speaker, msg);
+                        GestureState g = randomGesture();
+                        Participant.enqueueTask(() -> { classroomPanel.setSpeaking(7, true); classroomPanel.setGesture(7, g); });
+                        discussion.teacher.enqueueSpeech(msg);
+                        Participant.runAfterSpeech(() -> {
+                            chatPanel.addMessage(speaker, msg, 7);
                             classroomPanel.setSpeaking(7, false);
+                            classroomPanel.setGesture(7, GestureState.IDLE);
                         });
                     } else {
                         int seat = discussion.getLastSpeakerSeat();
-                        classroomPanel.setSpeaking(seat, true);
-                        classroomPanel.setGesture(seat, GestureState.HAND_RAISE);
-                        Student.runAfterSpeech(() -> {
-                            chatPanel.addMessage(speaker, msg);
+                        Student s = discussion.getLastSpeakerStudent();
+                        GestureState g = randomGesture();
+                        Participant.enqueueTask(() -> { classroomPanel.setSpeaking(seat, true); classroomPanel.setGesture(seat, g); });
+                        s.enqueueSpeech(msg);
+                        Participant.runAfterSpeech(() -> {
+                            chatPanel.addMessage(speaker, msg, seat);
                             classroomPanel.setSpeaking(seat, false);
+                            classroomPanel.setGesture(seat, GestureState.IDLE);
                         });
                     }
                 } catch (Exception ex) { ex.printStackTrace(); }
@@ -194,6 +205,14 @@ public class ClassroomFrame extends JFrame {
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
+
+    private static final Random random = new Random();
+    private static final GestureState[] ACTIVE_GESTURES = {
+        GestureState.HAND_RAISE, GestureState.WAVE, GestureState.POINT, GestureState.LEANING_FORWARD
+    };
+    private static GestureState randomGesture() {
+        return ACTIVE_GESTURES[random.nextInt(ACTIVE_GESTURES.length)];
+    }
 
     private static void newTimer(int delayMs, Runnable action) {
         Timer t = new Timer(delayMs, e -> action.run());

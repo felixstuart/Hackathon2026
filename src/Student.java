@@ -150,12 +150,13 @@ public class Student extends Participant {
                 "How you reason: %s\n" +
                 "Your background lens: %s\n" +
                 "Your level: %s\n\n" +
-                "Rules — follow them exactly:\n" +
+                "CRITICAL RULE: You make statements. You do NOT ask questions. Your response must not contain a question mark. " +
+                "You are contributing a point, not posing a question to the group.\n\n" +
+                "Other rules:\n" +
                 "- You are %s. Sign nothing, introduce yourself to nobody — just speak.\n" +
                 "- Sound like a real student, not an AI. No bullet points, no headers.\n" +
                 "- Anchor your point to something specific in the text.\n" +
-                "- If someone said something relevant just before you, use their name.\n" +
-                "- Make a statement or observation. Do NOT end your comment with a question.\n" +
+                "- If someone said something relevant just before you, build on or push back on their point by name.\n" +
                 "- %s",
                 name,
                 socialRegister.promptDescription,
